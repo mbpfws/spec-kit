@@ -30,6 +30,8 @@ import tempfile
 import shutil
 import shlex
 import json
+import hashlib
+import ast
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
@@ -50,6 +52,8 @@ from typer.core import TyperGroup
 import readchar
 import ssl
 import truststore
+
+# Registry management handled by register-artifact.sh scripts
 
 ssl_context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 client = httpx.Client(verify=ssl_context)
@@ -105,6 +109,119 @@ CONFIG_FILE_MARKERS = {
 MAX_CLASSIFICATION_SCAN = 800
 VALID_PROJECT_TYPES = {"auto", "greenfield", "brownfield", "ongoing"}
 SCAN_EXCLUDE_DIRS = {".git", ".specify", "__pycache__", "node_modules", ".venv", ".idea", ".vscode"}
+
+
+ARTIFACT_REGISTRY_FILENAME = "artifact-registry.json"
+ARTIFACT_SCAN_ROOTS = [
+    Path(".specify") / "templates",
+    Path("templates"),
+    Path(".claude"),
+    Path(".gemini"),
+    Path(".cursor"),
+    Path(".qwen"),
+    Path(".opencode"),
+    Path(".codex"),
+    Path(".windsurf"),
+    Path(".kilocode"),
+    Path(".augment"),
+    Path(".roo"),
+    Path(".github"),
+]
+
+ARTIFACT_AGENT_PREFIXES = {
+    ".claude": ["claude"],
+    ".gemini": ["gemini"],
+    ".cursor": ["cursor"],
+    ".qwen": ["qwen"],
+    ".opencode": ["opencode"],
+    ".codex": ["codex"],
+    ".windsurf": ["windsurf"],
+    ".kilocode": ["kilocode"],
+    ".augment": ["auggie"],
+    ".roo": ["roo"],
+    ".github": ["copilot"],
+}
+
+FRONTMATTER_SUFFIXES = {".md", ".mdc", ".toml"}
+
+GAID_PLACEHOLDER_PATTERN = re.compile(r"^(TODO|TBD)(-|$)", re.IGNORECASE)
+
+
+def _is_placeholder(value: str | None) -> bool:
+    if value is None:
+        return True
+    stripped = value.strip()
+    if not stripped:
+        return True
+    return bool(GAID_PLACEHOLDER_PATTERN.match(stripped))
+
+
+def _stage_token(stage: str | None, fallback: str) -> str:
+    token = (stage or "").strip()
+    if token.startswith("/"):
+        token = token[1:]
+    token = token.replace("/", "-")
+    if not token:
+        token = fallback
+    token = re.sub(r"[^A-Za-z0-9]+", "-", token)
+    token = token.strip("-") or fallback
+    return token.upper()
+
+
+def _extract_feature_slug(rel_path: str) -> str | None:
+    parts = rel_path.split("/")
+    if len(parts) >= 2 and parts[0] == "specs":
+        return parts[1]
+    return None
+
+
+def _path_slug(rel_path: str) -> str:
+    without_ext = rel_path.rsplit(".", 1)[0] if "." in rel_path else rel_path
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", without_ext).strip("-")
+    if not slug:
+        slug = "ROOT"
+    return slug.lower()
+
+
+def _derive_gaid(stage: str | None, rel_path: str) -> str:
+    feature_slug = _extract_feature_slug(rel_path)
+    stage_token = _stage_token(stage, "GEN")
+    if feature_slug:
+        return f"GAID-{stage_token}-{feature_slug}"
+    path_token = _path_slug(rel_path).upper()
+    return f"GAID-{stage_token}-{path_token}"
+
+
+def _rewrite_front_matter_entries(file_path: Path, updates: dict[str, str]) -> None:
+    if not updates:
+        return
+    try:
+        lines = file_path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return
+    if not lines or lines[0].strip() != "---":
+        return
+    end_idx = None
+    for idx in range(1, len(lines)):
+        if lines[idx].strip() == "---":
+            end_idx = idx
+            break
+    if end_idx is None:
+        return
+    for key, value in updates.items():
+        key_prefix = f"{key}:"
+        replaced = False
+        for idx in range(1, end_idx):
+            if lines[idx].strip().startswith(key_prefix):
+                indent = lines[idx][: lines[idx].find(key_prefix)]
+                lines[idx] = f"{indent}{key}: {value}"
+                replaced = True
+                break
+        if not replaced:
+            insertion = f"{key}: {value}"
+            lines.insert(1, insertion)
+            end_idx += 1
+    file_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _safe_git_commit_count(project_path: Path) -> int:
@@ -285,6 +402,180 @@ def classify_project_state(project_path: Path, override: str = "auto", debug: bo
     return detected
 
 
+def _artifact_registry_path(project_path: Path) -> Path:
+    state_dir = project_path / CLASSIFICATION_STATE_DIRNAME
+    state_dir.mkdir(parents=True, exist_ok=True)
+    return state_dir / ARTIFACT_REGISTRY_FILENAME
+
+
+def _load_artifact_registry(registry_path: Path) -> list:
+    if not registry_path.exists():
+        return []
+    try:
+        with registry_path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+            if isinstance(data, list):
+                return data
+    except Exception:
+        pass
+    return []
+
+
+def _write_artifact_registry(registry_path: Path, entries: list) -> None:
+    with registry_path.open("w", encoding="utf-8") as fh:
+        json.dump(entries, fh, indent=2)
+
+
+def _calculate_file_checksum(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(8192), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _parse_front_matter(file_path: Path) -> dict:
+    try:
+        with file_path.open("r", encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except Exception:
+        return {}
+    if not lines or lines[0].strip() != "---":
+        return {}
+    data: dict = {}
+    for line in lines[1:]:
+        stripped = line.strip()
+        if stripped == "---":
+            break
+        if not stripped or stripped.startswith("#"):
+            continue
+        if ":" not in stripped:
+            continue
+        key, value = stripped.split(":", 1)
+        key = key.strip()
+        raw_value = value.strip()
+        if not raw_value:
+            data[key] = None
+            continue
+        if raw_value.startswith("\"") and raw_value.endswith("\""):
+            data[key] = raw_value[1:-1]
+            continue
+        if raw_value.startswith("'") and raw_value.endswith("'"):
+            data[key] = raw_value[1:-1]
+            continue
+        if raw_value.startswith("[") or raw_value.startswith("{"):
+            try:
+                data[key] = ast.literal_eval(raw_value)
+                continue
+            except Exception:
+                pass
+        data[key] = raw_value
+    return data
+
+
+def _infer_agents_from_relpath(rel_path: str) -> list[str]:
+    agents: list[str] = []
+    normalized = rel_path.replace("\\", "/")
+    for prefix, mapped in ARTIFACT_AGENT_PREFIXES.items():
+        if normalized.startswith(prefix.lstrip("./")) or normalized.startswith(prefix + "/"):
+            agents.extend(mapped)
+    return sorted(set(agents))
+
+
+def _collect_artifact_records(project_path: Path, classification: dict) -> list[dict]:
+    records: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    default_project_type = (classification or {}).get("project_type")
+    for relative_root in ARTIFACT_SCAN_ROOTS:
+        root_path = project_path / relative_root
+        if not root_path.exists():
+            continue
+        for file_path in root_path.rglob("*"):
+            if not file_path.is_file():
+                continue
+            if file_path.suffix.lower() not in FRONTMATTER_SUFFIXES:
+                continue
+            front = _parse_front_matter(file_path)
+            rel = file_path.relative_to(project_path).as_posix()
+
+            gaid = (front.get("gaid") or "").strip()
+            stage = front.get("stage")
+            if isinstance(stage, str):
+                stage = stage.strip()
+            domain = front.get("domain")
+            if isinstance(domain, str):
+                domain = domain.strip()
+            project_type_value = front.get("project_type")
+            if isinstance(project_type_value, str):
+                project_type_value = project_type_value.strip()
+
+            if not gaid or _is_placeholder(gaid):
+                gaid = _derive_gaid(stage, rel)
+                _rewrite_front_matter_entries(file_path, {"gaid": gaid})
+                front["gaid"] = gaid
+
+            if not gaid:
+                continue
+            key = (gaid, rel)
+            if key in seen:
+                continue
+            seen.add(key)
+            if not project_type_value or project_type_value.upper() in {"TODO", "TBD"}:
+                project_type_value = default_project_type
+                if project_type_value:
+                    _rewrite_front_matter_entries(file_path, {"project_type": project_type_value})
+                    front["project_type"] = project_type_value
+            dependencies = front.get("dependencies")
+            if isinstance(dependencies, str):
+                dependencies = [dependencies]
+            elif not isinstance(dependencies, list):
+                dependencies = []
+            dependencies = [str(dep).strip() for dep in dependencies if str(dep).strip()]
+            agents = _infer_agents_from_relpath(rel)
+            checksum = _calculate_file_checksum(file_path)
+            metadata: dict = {"registered_from": "specify init"}
+            description = front.get("description")
+            if isinstance(description, str) and description.strip():
+                metadata["description"] = description.strip()
+            if file_path.suffix.lower() == ".toml":
+                metadata["format"] = "toml"
+            if rel.startswith(".specify/templates"):
+                metadata["template_scope"] = "internal"
+            elif rel.startswith("templates/"):
+                metadata["template_scope"] = "project"
+            elif agents:
+                metadata["template_scope"] = "agent"
+            record = {
+                "gaid": gaid,
+                "path": rel,
+                "stage": stage or None,
+                "domain": domain or None,
+                "project_type": project_type_value,
+                "dependencies": dependencies,
+                "agents": agents,
+                "metadata": metadata,
+                "status": "registered",
+                "last_synced_at": datetime.utcnow().isoformat() + "Z",
+                "checksum": checksum,
+            }
+            records.append(record)
+    return records
+
+
+def update_artifact_registry(project_path: Path, classification: dict) -> None:
+    registry_path = _artifact_registry_path(project_path)
+    existing_entries = _load_artifact_registry(registry_path)
+    index: dict[tuple[str | None, str | None], dict] = {}
+    for entry in existing_entries:
+        gaid = entry.get("gaid")
+        path = entry.get("path")
+        index[(gaid, path)] = entry
+    for record in _collect_artifact_records(project_path, classification):
+        index[(record.get("gaid"), record.get("path"))] = record
+    updated = [index[key] for key in sorted(index.keys(), key=lambda item: (item[0] or "", item[1] or ""))]
+    _write_artifact_registry(registry_path, updated)
+
+
 def persist_classification(project_path: Path, classification: dict) -> None:
     try:
         state_dir = project_path / CLASSIFICATION_STATE_DIRNAME
@@ -348,7 +639,7 @@ BANNER = """
 ╚══════╝╚═╝     ╚══════╝ ╚═════╝╚═╝╚═╝        ╚═╝   
 """
 
-TAGLINE = "GitHub Spec Kit - Spec-Driven Development Toolkit"
+TAGLINE = "SPEC-BUFF - A Fork of GitHub Spec Kit For Cross-Domain Complex System Development"
 class StepTracker:
     """Track and render hierarchical steps without emojis, similar to Claude Code tree output.
     Supports live auto-refresh via an attached refresh callback.
@@ -1290,6 +1581,17 @@ def init(
             console.print(error_panel)
             raise typer.Exit(1)
     
+    # Run project classification to determine safeguards and messaging
+    try:
+        classification = classify_project_state(
+            project_path,
+            override=project_type,
+            debug=classification_debug,
+        )
+    except Exception as exc:
+        console.print(Panel(f"Failed to classify project: {exc}", border_style="red"))
+        raise typer.Exit(1)
+
     # Create formatted setup info with column alignment
     current_dir = Path.cwd()
     
@@ -1415,6 +1717,7 @@ def init(
         ("extract", "Extract template"),
         ("zip-list", "Archive contents"),
         ("extracted-summary", "Extraction summary"),
+        ("registry", "Update artifact registry"),
         ("chmod", "Ensure scripts executable"),
         ("cleanup", "Cleanup"),
         ("git", "Initialize git repository"),
@@ -1437,6 +1740,14 @@ def init(
             ensure_executable_scripts(project_path, tracker=tracker)
 
             persist_classification(project_path, classification)
+
+            try:
+                tracker.start("registry")
+                update_artifact_registry(project_path, classification)
+                tracker.complete("registry", "synchronized")
+            except Exception as registry_error:
+                tracker.error("registry", str(registry_error))
+                console.print(Panel(f"Warning: failed to update artifact registry ({registry_error})", border_style="yellow"))
 
             # Git step
             if not no_git:
@@ -1544,6 +1855,8 @@ def init(
     steps_lines.append("   2.5 [cyan]/tasks[/] - Generate actionable tasks")
     steps_lines.append("   2.6 [cyan]/analyze[/] - Validate alignment & surface inconsistencies (read-only)")
     steps_lines.append("   2.7 [cyan]/implement[/] - Execute implementation")
+
+    # Artifact registry will be initialized when first artifacts are created via scripts
 
     steps_panel = Panel("\n".join(steps_lines), title="Next Steps", border_style="cyan", padding=(1,2))
     console.print()

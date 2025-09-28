@@ -165,3 +165,136 @@ function Test-DirHasFiles {
         return $false
     }
 }
+
+# GAID System Functions
+function Register-Gaid {
+    param(
+        [string]$Gaid,
+        [string]$Path,
+        [string]$Stage,
+        [string]$Domain,
+        [string]$Dependencies = "",
+        [string]$ProjectType = "greenfield"
+    )
+    
+    $repoRoot = Get-RepoRoot
+    $registryFile = "$repoRoot\.specify\state\artifact-registry.json"
+    $stateDir = Split-Path $registryFile -Parent
+    
+    if (-not (Test-Path $stateDir)) {
+        New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+    }
+    
+    # Load existing registry
+    $entries = @()
+    if (Test-Path $registryFile) {
+        try {
+            $entries = Get-Content $registryFile -Raw | ConvertFrom-Json
+            if ($entries -isnot [System.Array]) {
+                $entries = @($entries)
+            }
+        } catch {
+            $entries = @()
+        }
+    }
+    
+    # Remove existing entry for same path
+    $entries = $entries | Where-Object { $_.path -ne $Path }
+    
+    # Create new entry
+    $entry = @{
+        gaid = $Gaid
+        path = $Path
+        stage = $Stage
+        domain = $Domain
+        dependencies = if ($Dependencies) { $Dependencies.Split(',') } else { @() }
+        project_type = $ProjectType
+        created_at = (Get-Date).ToString('o')
+        checksum = ""
+    }
+    
+    if (Test-Path $Path) {
+        $entry.checksum = (Get-FileHash -Path $Path -Algorithm MD5).Hash
+    }
+    
+    $entries += $entry
+    
+    # Save registry
+    $entries | ConvertTo-Json -Depth 10 | Set-Content $registryFile -Encoding UTF8
+    
+    return $Gaid
+}
+
+function Get-NextGaid {
+    param([string]$Domain)
+    
+    $repoRoot = Get-RepoRoot
+    $registryFile = "$repoRoot\.specify\state\artifact-registry.json"
+    
+    $entries = @()
+    if (Test-Path $registryFile) {
+        try {
+            $entries = Get-Content $registryFile -Raw | ConvertFrom-Json
+            if ($entries -isnot [System.Array]) {
+                $entries = @($entries)
+            }
+        } catch {
+            $entries = @()
+        }
+    }
+    
+    # Find highest number for domain
+    $highest = 0
+    $domainUpper = $Domain.ToUpper()
+    foreach ($entry in $entries) {
+        if ($entry.gaid -like "GAID-$domainUpper-*") {
+            try {
+                $num = [int]($entry.gaid.Split('-')[-1])
+                if ($num -gt $highest) {
+                    $highest = $num
+                }
+            } catch {
+                # ignore parse errors
+            }
+        }
+    }
+    
+    return "GAID-$domainUpper-{0:D3}" -f ($highest + 1)
+}
+
+function Get-GaidContext {
+    $repoRoot = Get-RepoRoot
+    $registryFile = "$repoRoot\.specify\state\artifact-registry.json"
+    
+    if (-not (Test-Path $registryFile)) {
+        return @{}
+    }
+    
+    try {
+        $entries = Get-Content $registryFile -Raw | ConvertFrom-Json
+        if ($entries -isnot [System.Array]) {
+            $entries = @($entries)
+        }
+        
+        $currentBranch = Get-CurrentBranch
+        $featureGaids = @()
+        
+        foreach ($entry in $entries) {
+            if ($entry.path -like "*$currentBranch*") {
+                $featureGaids += @{
+                    gaid = $entry.gaid
+                    domain = $entry.domain
+                    stage = $entry.stage
+                    dependencies = $entry.dependencies
+                }
+            }
+        }
+        
+        return @{
+            current_branch = $currentBranch
+            artifacts = $featureGaids
+        }
+    } catch {
+        return @{}
+    }
+}

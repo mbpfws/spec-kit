@@ -1,10 +1,5 @@
 ---
 description: Execute the implementation planning workflow using the plan template to generate design artifacts.
-gaid: TODO-CMD-PLAN
-stage: /plan
-domain: architecture
-project_type: TODO
-dependencies: ["TODO-SPEC-XXXX"]
 scripts:
   sh: scripts/bash/setup-plan.sh --json
   ps: scripts/powershell/setup-plan.ps1 -Json

@@ -80,9 +80,17 @@ fi
 FEATURE_DIR="$SPECS_DIR/$BRANCH_NAME"
 mkdir -p "$FEATURE_DIR"
 
+# Source common functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
 TEMPLATE="$REPO_ROOT/.specify/templates/spec-template.md"
 SPEC_FILE="$FEATURE_DIR/spec.md"
 if [ -f "$TEMPLATE" ]; then cp "$TEMPLATE" "$SPEC_FILE"; else touch "$SPEC_FILE"; fi
+
+# Register GAID for spec
+GAID=$(get_next_gaid "spec")
+register_gaid "$GAID" "$SPEC_FILE" "/specify" "spec" "" "greenfield"
 
 # Set the SPECIFY_FEATURE environment variable for the current session
 export SPECIFY_FEATURE="$BRANCH_NAME"

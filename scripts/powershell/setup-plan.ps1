@@ -42,6 +42,10 @@ if (Test-Path $template) {
     New-Item -ItemType File -Path $paths.IMPL_PLAN -Force | Out-Null
 }
 
+# Register GAID for plan
+$gaid = Get-NextGaid "plan"
+Register-Gaid -Gaid $gaid -Path $paths.IMPL_PLAN -Stage "/plan" -Domain "plan" -Dependencies "$($paths.CURRENT_BRANCH):spec" -ProjectType "greenfield"
+
 # Output results
 if ($Json) {
     $result = [PSCustomObject]@{ 

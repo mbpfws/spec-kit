@@ -1,11 +1,4 @@
 ---
-gaid: TODO-TSK-XXXX
-stage: /tasks
-domain: execution
-project_type: TODO
-dependencies: ["TODO-PLN-XXXX"]
----
-
 # Tasks: [FEATURE NAME]
 
 **Input**: Design documents from `/specs/[###-feature-name]/`

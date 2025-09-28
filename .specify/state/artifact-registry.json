@@ -1,1 +1,183 @@
-[]
+[
+  {
+    "gaid": "GAID-CMD-001",
+    "path": "templates/commands/analyze.md",
+    "stage": "/analyze",
+    "domain": "validation",
+    "project_type": "auto",
+    "dependencies": [
+      "GAID-TPL-003"
+    ],
+    "agents": [],
+    "metadata": {
+      "registered_from": "specify init",
+      "description": "Perform a non-destructive cross-artifact consistency and quality analysis across spec.md, plan.md, and tasks.md after task generation.",
+      "template_scope": "project"
+    },
+    "status": "registered",
+    "last_synced_at": "2025-09-28T19:26:44.170920Z",
+    "checksum": "726b4e0e9908e4ffa490126d6d0a02a63a56ddb9ad2e6d572c6a804f4351ded5"
+  },
+  {
+    "gaid": "GAID-CMD-002",
+    "path": "templates/commands/clarify.md",
+    "stage": "/clarify",
+    "domain": "governance",
+    "project_type": "auto",
+    "dependencies": [
+      "GAID-TPL-001"
+    ],
+    "agents": [],
+    "metadata": {
+      "registered_from": "specify init",
+      "description": "Identify underspecified areas in the current feature spec by asking up to 5 highly targeted clarification questions and encoding answers back into the spec.",
+      "template_scope": "project"
+    },
+    "status": "registered",
+    "last_synced_at": "2025-09-28T19:26:44.172428Z",
+    "checksum": "95c0b27070ae2f71e2fefb08693876c763f65c4c756f36638597555880134660"
+  },
+  {
+    "gaid": "GAID-CMD-003",
+    "path": "templates/commands/constitution.md",
+    "stage": "/constitution",
+    "domain": "governance",
+    "project_type": "auto",
+    "dependencies": [],
+    "agents": [],
+    "metadata": {
+      "registered_from": "specify init",
+      "description": "Create or update the project constitution from interactive or provided principle inputs, ensuring all dependent templates stay in sync.",
+      "template_scope": "project"
+    },
+    "status": "registered",
+    "last_synced_at": "2025-09-28T19:26:44.173437Z",
+    "checksum": "6d3eb55a76bfe0ffa1bd8e5e9818e32aca31a54a51ab6312db1b7d5dd20442f9"
+  },
+  {
+    "gaid": "GAID-CMD-004",
+    "path": "templates/commands/implement.md",
+    "stage": "/implement",
+    "domain": "execution",
+    "project_type": "auto",
+    "dependencies": [
+      "GAID-TPL-003",
+      "GAID-TPL-002"
+    ],
+    "agents": [],
+    "metadata": {
+      "registered_from": "specify init",
+      "description": "Execute the implementation plan by processing and executing all tasks defined in tasks.md",
+      "template_scope": "project"
+    },
+    "status": "registered",
+    "last_synced_at": "2025-09-28T19:26:44.173437Z",
+    "checksum": "210feb751403f2f9f4b3dcc7a1cdeca1840c0d307e170e793527396753722964"
+  },
+  {
+    "gaid": "GAID-CMD-005",
+    "path": "templates/commands/plan.md",
+    "stage": "/plan",
+    "domain": "architecture",
+    "project_type": "auto",
+    "dependencies": [
+      "GAID-TPL-001"
+    ],
+    "agents": [],
+    "metadata": {
+      "registered_from": "specify init",
+      "description": "Execute the implementation planning workflow using the plan template to generate design artifacts.",
+      "template_scope": "project"
+    },
+    "status": "registered",
+    "last_synced_at": "2025-09-28T19:26:44.174945Z",
+    "checksum": "79c3c815c72a08790ffe5c052c412769eeeee112cf3e74d9f19acc726c846f25"
+  },
+  {
+    "gaid": "GAID-CMD-006",
+    "path": "templates/commands/specify.md",
+    "stage": "/specify",
+    "domain": "specification",
+    "project_type": "auto",
+    "dependencies": [],
+    "agents": [],
+    "metadata": {
+      "registered_from": "specify init",
+      "description": "Create a new feature specification from user requirements using the spec template.",
+      "template_scope": "project"
+    },
+    "status": "registered",
+    "last_synced_at": "2025-09-28T19:26:44.175954Z",
+    "checksum": "714707195266e3c74c05d59e1f405c0f093758468cd40a4f4624174dc3f9f69d"
+  },
+  {
+    "gaid": "GAID-TPL-001",
+    "path": "templates/spec-template.md",
+    "stage": "/specify",
+    "domain": "specification",
+    "project_type": "auto",
+    "dependencies": [],
+    "agents": [],
+    "metadata": {
+      "registered_from": "specify init",
+      "template_scope": "project"
+    },
+    "status": "registered",
+    "last_synced_at": "2025-09-28T19:26:44.169921Z",
+    "checksum": "22b2a0e78573d4cb89844a1f76adc812f1db2a17a82de5ab0c3099b22819d446"
+  },
+  {
+    "gaid": "GAID-TPL-002",
+    "path": "templates/plan-template.md",
+    "stage": "/plan",
+    "domain": "architecture",
+    "project_type": "auto",
+    "dependencies": [
+      "GAID-TPL-001"
+    ],
+    "agents": [],
+    "metadata": {
+      "registered_from": "specify init",
+      "description": "Implementation plan template for feature development",
+      "template_scope": "project"
+    },
+    "status": "registered",
+    "last_synced_at": "2025-09-28T19:26:44.168910Z",
+    "checksum": "71bfc6a1b83e89d7be53c852a808a5b931bfb4573501c87f8fd0c6e7609db639"
+  },
+  {
+    "gaid": "GAID-TPL-003",
+    "path": "templates/tasks-template.md",
+    "stage": "/tasks",
+    "domain": "execution",
+    "project_type": "auto",
+    "dependencies": [
+      "GAID-TPL-002"
+    ],
+    "agents": [],
+    "metadata": {
+      "registered_from": "specify init",
+      "template_scope": "project"
+    },
+    "status": "registered",
+    "last_synced_at": "2025-09-28T19:26:44.170920Z",
+    "checksum": "8c48a9534547fde16bd566a16436d6e3ed037031fd508ea5c433e91ead65ebb5"
+  },
+  {
+    "gaid": "GAID-TPL-004",
+    "path": "templates/agent-file-template.md",
+    "stage": "/init",
+    "domain": "governance",
+    "project_type": "auto",
+    "dependencies": [],
+    "agents": [],
+    "metadata": {
+      "registered_from": "specify init",
+      "description": "Generated agent context file template populated during update-agent-context workflows.",
+      "template_scope": "project"
+    },
+    "status": "registered",
+    "last_synced_at": "2025-09-28T19:26:44.167307Z",
+    "checksum": "3f5fda24cf9140a64cec206e93c3e8566bc6a5b8f25ccd55c43ae55b3925547c"
+  }
+]

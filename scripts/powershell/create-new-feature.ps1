@@ -97,6 +97,10 @@ if (Test-Path $template) {
     New-Item -ItemType File -Path $specFile | Out-Null 
 }
 
+# Register GAID for spec
+$gaid = Get-NextGaid "spec"
+Register-Gaid -Gaid $gaid -Path $specFile -Stage "/specify" -Domain "spec" -Dependencies "" -ProjectType "greenfield"
+
 # Set the SPECIFY_FEATURE environment variable for the current session
 $env:SPECIFY_FEATURE = $branchName
 

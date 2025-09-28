@@ -72,6 +72,8 @@ ROO_FILE="$REPO_ROOT/.roo/rules/specify-rules.md"
 
 # Template file
 TEMPLATE_FILE="$REPO_ROOT/.specify/templates/agent-file-template.md"
+STATE_DIR="$REPO_ROOT/.specify/state"
+REGISTRY_FILE="$STATE_DIR/artifact-registry.json"
 
 # Global variables for parsed plan data
 NEW_LANG=""
@@ -174,10 +176,14 @@ parse_plan_data() {
     
     log_info "Parsing plan data from $plan_file"
     
+    # Basic plan fields (existing)
     NEW_LANG=$(extract_plan_field "Language/Version" "$plan_file")
     NEW_FRAMEWORK=$(extract_plan_field "Primary Dependencies" "$plan_file")
     NEW_DB=$(extract_plan_field "Storage" "$plan_file")
     NEW_PROJECT_TYPE=$(extract_plan_field "Project Type" "$plan_file")
+    
+    # Enhanced GAID context integration
+    load_gaid_context
     
     # Log what we found
     if [[ -n "$NEW_LANG" ]]; then
@@ -199,11 +205,78 @@ parse_plan_data() {
     fi
 }
 
+load_gaid_context() {
+    log_info "Loading GAID context from registry"
+    
+    # Get current branch and feature context
+    eval $(get_feature_paths)
+    
+    local registry_file="$REPO_ROOT/.specify/state/artifact-registry.json"
+    if [[ -f "$registry_file" ]]; then
+        # Extract GAID context using Python
+        local gaid_data
+        gaid_data=$(python3 - <<PY
+import json, sys
+try:
+    with open("$registry_file", "r") as f:
+        registry = json.load(f)
+    
+    # Find GAIDs for current feature branch
+    feature_gaids = {}
+    controlled_vars = {}
+    
+    for entry in registry:
+        if "$CURRENT_BRANCH" in entry.get("path", ""):
+            domain = entry.get("domain", "unknown")
+            feature_gaids[domain] = entry.get("gaid", "")
+            
+            # Extract controlled variables if present
+            if "controlled_variables" in entry:
+                controlled_vars.update(entry["controlled_variables"])
+    
+    # Output as shell variables
+    print(f"GAID_SPEC_ID='{feature_gaids.get('spec', '')}'") 
+    print(f"GAID_PLAN_ID='{feature_gaids.get('plan', '')}'") 
+    print(f"GAID_TASK_ID='{feature_gaids.get('tasks', '')}'") 
+    print(f"COMPLEXITY_LEVEL='{controlled_vars.get('COMPLEXITY_LEVEL', '')}'") 
+    print(f"DOMAIN_PATTERNS='{' '.join(controlled_vars.get('DOMAIN_PATTERNS', []))}'") 
+    print(f"TECH_STACK='{' '.join(controlled_vars.get('TECH_STACK', []))}'") 
+    print(f"INTEGRATION_RISK='{controlled_vars.get('INTEGRATION_RISK', '')}'") 
+    print(f"BROWNFIELD_CONTEXT='{controlled_vars.get('BROWNFIELD_CONTEXT', '')}'") 
+    
+except Exception as e:
+    print(f"GAID_CONTEXT_ERROR='Failed to load GAID context: {e}'")
+PY
+)
+        
+        # Evaluate the Python output to set shell variables
+        eval "$gaid_data"
+        
+        if [[ -n "$GAID_CONTEXT_ERROR" ]]; then
+            log_warning "$GAID_CONTEXT_ERROR"
+        else
+            log_info "Loaded GAID context: SPEC=$GAID_SPEC_ID, PLAN=$GAID_PLAN_ID, COMPLEXITY=$COMPLEXITY_LEVEL"
+        fi
+    else
+        log_warning "GAID registry not found: $registry_file"
+        # Set empty defaults
+        GAID_SPEC_ID=""
+        GAID_PLAN_ID=""
+        GAID_TASK_ID=""
+        COMPLEXITY_LEVEL=""
+        DOMAIN_PATTERNS=""
+        TECH_STACK=""
+        INTEGRATION_RISK=""
+        BROWNFIELD_CONTEXT=""
+    fi
+}
+
 format_technology_stack() {
     local lang="$1"
     local framework="$2"
     local parts=()
     
+{{ ... }}
     # Add non-empty parts
     [[ -n "$lang" && "$lang" != "NEEDS CLARIFICATION" ]] && parts+=("$lang")
     [[ -n "$framework" && "$framework" != "NEEDS CLARIFICATION" && "$framework" != "N/A" ]] && parts+=("$framework")
@@ -466,6 +539,56 @@ update_existing_agent_file() {
     return 0
 }
 #==============================================================================
+# Enhanced Agent Context Generation
+#==============================================================================
+
+generate_enhanced_context() {
+    local target_file="$1"
+    local agent_name="$2" 
+    local project_name="$3"
+    local current_date="$4"
+    
+    # Create enhanced context section
+    cat << EOF
+
+## Enhanced Project Context (GAID-Integrated)
+
+**Project Classification**: ${NEW_PROJECT_TYPE:-Unknown} project
+**Current Feature Branch**: ${CURRENT_BRANCH:-main}
+**Technology Stack**: $(format_technology_stack "$NEW_LANG" "$NEW_FRAMEWORK")
+**Storage Layer**: ${NEW_DB:-N/A}
+
+### GAID Artifact Tracking
+- **Specification GAID**: ${GAID_SPEC_ID:-Not yet created}
+- **Plan GAID**: ${GAID_PLAN_ID:-Not yet created} 
+- **Tasks GAID**: ${GAID_TASK_ID:-Not yet created}
+
+### Controlled Variables (Cross-Document)
+- **Complexity Level**: ${COMPLEXITY_LEVEL:-To be determined}
+- **Domain Patterns**: ${DOMAIN_PATTERNS:-General}
+- **Integration Risk**: ${INTEGRATION_RISK:-Low}
+- **Technology Constraints**: ${TECH_STACK:-To be specified}
+
+### Brownfield Integration Context
+${BROWNFIELD_CONTEXT:-No legacy system integration required}
+
+### Command Execution Guidelines
+
+**Before running commands:**
+1. Verify GAID dependencies are current via command scripts
+2. Check constitution compliance for governance principles
+3. Validate controlled variable inheritance from previous stages
+
+**Available Commands with GAID Integration:**
+- \`/specify\`: Creates specification with GAID tracking
+- \`/clarify\`: Refines spec with structured Q&A and GAID updates
+- \`/plan\`: Generates implementation plan with variable propagation
+- \`/tasks\`: Creates actionable tasks with dependency validation
+- \`/analyze\`: Cross-artifact consistency analysis (read-only)
+
+EOF
+}
+
 # Main Agent File Update Function
 #==============================================================================
 
@@ -504,8 +627,12 @@ update_agent_file() {
         }
         
         if create_new_agent_file "$target_file" "$temp_file" "$project_name" "$current_date"; then
+            # Append enhanced GAID context to new file
+            generate_enhanced_context "$target_file" "$agent_name" "$project_name" "$current_date" >> "$temp_file"
+            
             if mv "$temp_file" "$target_file"; then
-                log_success "Created new $agent_name context file"
+                log_success "Created new $agent_name context file with enhanced GAID integration"
+                sync_gaid_badges "$target_file" || log_warning "Failed to synchronize GAID badges for $target_file"
             else
                 log_error "Failed to move temporary file to $target_file"
                 rm -f "$temp_file"
@@ -530,6 +657,7 @@ update_agent_file() {
         
         if update_existing_agent_file "$target_file" "$current_date"; then
             log_success "Updated existing $agent_name context file"
+            sync_gaid_badges "$target_file" || log_warning "Failed to synchronize GAID badges for $target_file"
         else
             log_error "Failed to update existing agent file"
             return 1

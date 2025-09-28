@@ -1,8 +1,5 @@
 ---
 description: Execute the implementation plan by processing and executing all tasks defined in tasks.md
-scripts:
-  sh: scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
-  ps: scripts/powershell/check-prerequisites.ps1 -Json -RequireTasks -IncludeTasks
 ---
 
 The user input can be provided directly by the agent or as a command argument - you **MUST** consider it before proceeding with the prompt (if not empty).

@@ -154,3 +154,144 @@ EOF
 
 check_file() { [[ -f "$1" ]] && echo "  ✓ $2" || echo "  ✗ $2"; }
 check_dir() { [[ -d "$1" && -n $(ls -A "$1" 2>/dev/null) ]] && echo "  ✓ $2" || echo "  ✗ $2"; }
+
+# GAID System Functions
+register_gaid() {
+    local gaid="$1"
+    local path="$2"
+    local stage="$3"
+    local domain="$4"
+    local dependencies="$5"
+    local project_type="$6"
+    
+    local repo_root=$(get_repo_root)
+    local registry_file="$repo_root/.specify/state/artifact-registry.json"
+    local state_dir="$(dirname "$registry_file")"
+    
+    mkdir -p "$state_dir"
+    
+    # Create or update registry entry
+    python3 - <<PY
+import json
+import os
+import hashlib
+from datetime import datetime
+
+registry_file = "$registry_file"
+entries = []
+
+if os.path.exists(registry_file):
+    try:
+        with open(registry_file, 'r') as f:
+            entries = json.load(f)
+    except:
+        entries = []
+
+# Remove existing entry for same path
+entries = [e for e in entries if e.get('path') != '$path']
+
+# Create new entry
+entry = {
+    "gaid": "$gaid",
+    "path": "$path",
+    "stage": "$stage",
+    "domain": "$domain",
+    "dependencies": "$dependencies".split(',') if "$dependencies" else [],
+    "project_type": "$project_type",
+    "created_at": datetime.now().isoformat(),
+    "checksum": ""
+}
+
+if os.path.exists("$path"):
+    with open("$path", 'rb') as f:
+        entry["checksum"] = hashlib.md5(f.read()).hexdigest()
+
+entries.append(entry)
+
+with open(registry_file, 'w') as f:
+    json.dump(entries, f, indent=2)
+
+print("$gaid")
+PY
+}
+
+get_next_gaid() {
+    local domain="$1"
+    local repo_root=$(get_repo_root)
+    local registry_file="$repo_root/.specify/state/artifact-registry.json"
+    
+    python3 - <<PY
+import json
+import os
+
+registry_file = "$registry_file"
+entries = []
+
+if os.path.exists(registry_file):
+    try:
+        with open(registry_file, 'r') as f:
+            entries = json.load(f)
+    except:
+        entries = []
+
+# Find highest number for domain
+highest = 0
+for entry in entries:
+    gaid = entry.get('gaid', '')
+    if gaid.startswith('GAID-' + "$domain".upper() + '-'):
+        try:
+            num = int(gaid.split('-')[-1])
+            if num > highest:
+                highest = num
+        except:
+            pass
+
+print(f"GAID-{"$domain".upper()}-{highest + 1:03d}")
+PY
+}
+
+get_gaid_context() {
+    local repo_root=$(get_repo_root)
+    local registry_file="$repo_root/.specify/state/artifact-registry.json"
+    
+    if [[ -f "$registry_file" ]]; then
+        python3 - <<PY
+import json
+import os
+
+registry_file = "$registry_file"
+entries = []
+
+try:
+    with open(registry_file, 'r') as f:
+        entries = json.load(f)
+except:
+    entries = []
+
+# Get current branch context
+current_branch = os.environ.get('CURRENT_BRANCH', '')
+if not current_branch:
+    current_branch = "$(get_current_branch)"
+
+# Find GAIDs for current branch
+feature_gaids = []
+for entry in entries:
+    if current_branch in entry.get('path', ''):
+        feature_gaids.append({
+            'gaid': entry.get('gaid', ''),
+            'domain': entry.get('domain', ''),
+            'stage': entry.get('stage', ''),
+            'dependencies': entry.get('dependencies', [])
+        })
+
+result = {
+    'current_branch': current_branch,
+    'artifacts': feature_gaids
+}
+
+print(json.dumps(result))
+PY
+    else
+        echo '{}'
+    fi
+}

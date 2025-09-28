@@ -47,6 +47,10 @@ else
     touch "$IMPL_PLAN"
 fi
 
+# Register GAID for plan
+GAID=$(get_next_gaid "plan")
+register_gaid "$GAID" "$IMPL_PLAN" "/plan" "plan" "${CURRENT_BRANCH}:spec" "greenfield"
+
 # Output results
 if $JSON_MODE; then
     printf '{"FEATURE_SPEC":"%s","IMPL_PLAN":"%s","SPECS_DIR":"%s","BRANCH":"%s","HAS_GIT":"%s"}\n' \

@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#!
 .SYNOPSIS
-Update agent context files with information from plan.md (PowerShell version)
+Update agent context files with information from plan.md and GAID registry (PowerShell version)
 
 .DESCRIPTION
 Mirrors the behavior of scripts/bash/update-agent-context.sh:
@@ -56,6 +56,8 @@ $AUGGIE_FILE   = Join-Path $REPO_ROOT '.augment/rules/specify-rules.md'
 $ROO_FILE      = Join-Path $REPO_ROOT '.roo/rules/specify-rules.md'
 
 $TEMPLATE_FILE = Join-Path $REPO_ROOT '.specify/templates/agent-file-template.md'
+$STATE_DIR = Join-Path $REPO_ROOT '.specify/state'
+$REGISTRY_FILE = Join-Path $STATE_DIR 'artifact-registry.json'
 
 # Parsed plan data placeholders
 $script:NEW_LANG = ''
@@ -192,6 +194,68 @@ function Get-LanguageConventions {
         [string]$Lang
     )
     if ($Lang) { "${Lang}: Follow standard conventions" } else { 'General: Follow standard conventions' } 
+}
+
+function Sync-GaidBadges {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$TargetFile
+    )
+
+    if (-not (Test-Path $TargetFile)) { return }
+    if (-not (Test-Path $REGISTRY_FILE)) {
+        $placeholder = "- No GAID records registered for this agent file yet."
+    }
+
+    $relativePath = ''
+    try {
+        $relativePath = (Resolve-Path -LiteralPath $TargetFile).Path.Replace((Resolve-Path -LiteralPath $REPO_ROOT).Path, '').TrimStart('\\','/')
+        if ($relativePath.StartsWith('/')) { $relativePath = $relativePath.Substring(1) }
+        $relativePath = $relativePath -replace '\\','/'
+    } catch {
+        return
+    }
+
+    $entries = @()
+    if (Test-Path $REGISTRY_FILE) {
+        try {
+            $json = Get-Content -LiteralPath $REGISTRY_FILE -Raw | ConvertFrom-Json
+            if ($json -is [System.Collections.IEnumerable]) {
+                foreach ($item in $json) {
+                    if ($item.path -eq $relativePath) { $entries += $item }
+                }
+            }
+        } catch {
+            $entries = @()
+        }
+    }
+
+    if (-not $entries) {
+        $lines = @('- No GAID records registered for this agent file yet.')
+    } else {
+        $lines = $entries | Sort-Object gaid | ForEach-Object {
+            $gaid = $_.gaid
+            $details = @()
+            if ($_.stage) { $details += "stage: $($_.stage)" }
+            if ($_.domain) { $details += "domain: $($_.domain)" }
+            if ($details) { "- $gaid (${details -join ', '})" } else { "- $gaid" }
+        }
+    }
+
+    $content = Get-Content -LiteralPath $TargetFile -Raw
+    $marker = '## Governance Metadata'
+    $manual = '<!-- MANUAL ADDITIONS START -->'
+    if (-not ($content.Contains($marker) -and $content.Contains($manual))) { return }
+
+    $parts = $content.Split($marker, 2)
+    if ($parts.Count -ne 2) { return }
+    $afterMarker = $parts[1]
+    $subParts = $afterMarker.Split($manual, 2)
+    if ($subParts.Count -ne 2) { return }
+
+    $newSection = "$marker`n$($lines -join "`n")`n`n$manual"
+    $updated = $parts[0] + $newSection + $subParts[1]
+    Set-Content -LiteralPath $TargetFile -Value $updated -Encoding UTF8
 }
 
 function New-AgentFile {
@@ -347,10 +411,18 @@ function Update-AgentFile {
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
 
     if (-not (Test-Path $TargetFile)) {
-        if (New-AgentFile -TargetFile $TargetFile -ProjectName $projectName -Date $date) { Write-Success "Created new $AgentName context file" } else { Write-Err 'Failed to create new agent file'; return $false }
+        if (New-AgentFile -TargetFile $TargetFile -ProjectName $projectName -Date $date) {
+            Write-Success "Created new $AgentName context file"
+            try { Sync-GaidBadges -TargetFile $TargetFile } catch { Write-WarningMsg "Failed to synchronize GAID badges for $TargetFile" }
+        } else {
+            Write-Err 'Failed to create new agent file'; return $false
+        }
     } else {
         try {
-            if (Update-ExistingAgentFile -TargetFile $TargetFile -Date $date) { Write-Success "Updated existing $AgentName context file" } else { Write-Err 'Failed to update agent file'; return $false }
+            if (Update-ExistingAgentFile -TargetFile $TargetFile -Date $date) {
+                Write-Success "Updated existing $AgentName context file"
+                try { Sync-GaidBadges -TargetFile $TargetFile } catch { Write-WarningMsg "Failed to synchronize GAID badges for $TargetFile" }
+            } else { Write-Err 'Failed to update agent file'; return $false }
         } catch {
             Write-Err "Cannot access or update existing file: $TargetFile. $_"
             return $false
@@ -414,6 +486,10 @@ function Main {
     Validate-Environment
     Write-Info "=== Updating agent context files for feature $CURRENT_BRANCH ==="
     if (-not (Parse-PlanData -PlanFile $NEW_PLAN)) { Write-Err 'Failed to parse plan data'; exit 1 }
+    
+    # Load GAID context
+    $script:GAID_CONTEXT = Get-GaidContext
+    Write-Info "Loaded GAID context for branch: $CURRENT_BRANCH"
     $success = $true
     if ($AgentType) {
         Write-Info "Updating specific agent: $AgentType"

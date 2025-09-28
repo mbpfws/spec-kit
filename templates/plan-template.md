@@ -1,13 +1,5 @@
 ---
 description: "Implementation plan template for feature development"
-gaid: TODO-PLN-XXXX
-stage: /plan
-domain: architecture
-project_type: TODO
-dependencies: ["TODO-SPEC-XXXX"]
-scripts:
-  sh: scripts/bash/update-agent-context.sh __AGENT__
-  ps: scripts/powershell/update-agent-context.ps1 -AgentType __AGENT__
 ---
 
 # Implementation Plan: [FEATURE]

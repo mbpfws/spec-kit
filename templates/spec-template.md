@@ -1,11 +1,4 @@
 ---
-gaid: TODO-SPEC-XXXX
-stage: /specify
-domain: specification
-project_type: TODO
-dependencies: []
----
-
 # Feature Specification: [FEATURE NAME]
 
 **Feature Branch**: `[###-feature-name]`  
